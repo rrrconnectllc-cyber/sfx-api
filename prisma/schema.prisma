@@ -1,0 +1,199 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  plan                  String  @default("solo")
+  stripeCustomerId      String?
+  stripeSubscriptionId  String?
+  createdAt        DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users OrganizationMember[]
+  files File[]
+  settings OrganizationSettings?
+  matters Matter[]
+  approvals Approval[]
+  signatureRequests SignatureRequest[]
+}
+
+model OrganizationSettings {
+  id                   String @id @default(cuid())
+  organizationId       String @unique
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  defaultExpiration    Int @default(30)
+  maxDownloads         Int @default(100)
+  requirePassword      Boolean @default(true)
+  enableEmailNotify    Boolean @default(true)
+  enableTwoFactor      Boolean @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model User {
+  id               String   @id @default(cuid())
+  email            String   @unique
+  password         String
+  name             String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  organizations OrganizationMember[]
+  files File[]
+  fileAccess FileAccessLog[]
+  auditLogs AuditLog[]
+}
+
+model OrganizationMember {
+  id               String   @id @default(cuid())
+  userId           String
+  organizationId   String
+  role             String   @default("member")
+  joinedAt         DateTime @default(now())
+
+  user             User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+}
+
+model File {
+  id               String   @id @default(cuid())
+  organizationId   String
+  uploadedById     String
+  name             String
+  size             BigInt
+  mimeType         String
+  encryptionKey    String
+  encryptedPath    String
+  expiresAt        DateTime
+  maxDownloads     Int @default(100)
+  downloadCount    Int @default(0)
+  requirePassword  Boolean @default(false)
+  passwordHash     String?
+  matterId         String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  matter           Matter? @relation(fields: [matterId], references: [id], onDelete: SetNull)
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploadedBy       User @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  accessTokens     FileAccessToken[]
+  accessLogs       FileAccessLog[]
+  auditLogs        AuditLog[]
+  approvals        Approval[]
+  signatureRequests SignatureRequest[]
+
+  @@index([organizationId])
+  @@index([createdAt])
+}
+
+model FileAccessToken {
+  id               String   @id @default(cuid())
+  fileId           String
+  token            String   @unique
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  expiresAt        DateTime
+
+  file             File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+}
+
+model FileAccessLog {
+  id               String   @id @default(cuid())
+  fileId           String
+  accessedById     String?
+  ipAddress        String
+  userAgent        String
+  downloadedAt     DateTime @default(now())
+
+  file             File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  accessedBy       User? @relation(fields: [accessedById], references: [id], onDelete: SetNull)
+
+  @@index([fileId])
+  @@index([downloadedAt])
+}
+
+model Matter {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  clientName     String
+  status         String   @default("open")
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  files        File[]
+  approvals    Approval[]
+  signatureRequests SignatureRequest[]
+
+  @@index([organizationId])
+}
+
+model Approval {
+  id             String    @id @default(cuid())
+  organizationId String
+  matterId       String
+  fileId         String
+  requestedById  String
+  status         String    @default("pending")
+  note           String?
+  decidedById    String?
+  decidedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  matter       Matter @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  file         File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([status])
+}
+
+model SignatureRequest {
+  id             String    @id @default(cuid())
+  organizationId String
+  matterId       String
+  fileId         String
+  signerName     String
+  signerEmail    String
+  status         String    @default("pending")
+  signedName     String?
+  signedAt       DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  matter       Matter @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  file         File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([status])
+}
+
+model AuditLog {
+  id               String   @id @default(cuid())
+  organizationId   String
+  userId           String?
+  fileId           String?
+  action           String
+  details          String?
+  ipAddress        String?
+  createdAt        DateTime @default(now())
+
+  user             User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  file             File? @relation(fields: [fileId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([createdAt])
+}
