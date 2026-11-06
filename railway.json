@@ -1,0 +1,10 @@
+{
+  "$schema": "https://railway.app/json-schema/railway.json",
+  "build": {
+    "builder": "heroku.buildpacks"
+  },
+  "deploy": {
+    "numReplicas": 1,
+    "startCommand": "npm start"
+  }
+}
