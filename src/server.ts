@@ -1,11 +1,10 @@
+import './env';
 import express, { Request, Response, NextFunction } from 'express';
 // @ts-ignore TS7016 — @types/cors is not installed in this package.
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { PrismaClient } from '@prisma/client';
-import dotenv from 'dotenv';
-
 import authRoutes from './routes/auth';
 import filesRoutes from './routes/files';
 import teamRoutes from './routes/team';
@@ -19,11 +18,9 @@ import invitationRoutes from './routes/invitations';
 import { approvalsRouter, mattersRouter, signRouter, signaturesRouter } from './routes/legal';
 import { authenticateToken } from './middleware/auth';
 
-dotenv.config();
-
 const app = express();
 const prisma = new PrismaClient();
-const PORT = process.env.PORT || 3001;
+const PORT = Number(process.env.PORT) || 3001;
 
 // Prisma returns file size as BigInt, which JSON.stringify rejects.
 app.set('json replacer', (_key: string, value: unknown) =>
@@ -33,7 +30,12 @@ app.set('json replacer', (_key: string, value: unknown) =>
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:3001'],
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'https://sfxlegal.org',
+    'https://www.sfxlegal.org',
+  ],
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
@@ -95,7 +97,7 @@ const start = async () => {
     await prisma.$queryRaw`SELECT 1`;
     console.log('✓ Database connected');
 
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`\n✓ API Server running on http://localhost:${PORT}`);
       console.log(`✓ Environment: ${process.env.NODE_ENV}`);
       console.log(`✓ CORS enabled for localhost:3000\n`);
