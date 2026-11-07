@@ -54,6 +54,9 @@ router.put('/', async (req: AuthRequest, res: Response) => {
     if (plan === 'starter' || plan === 'business') {
       return res.status(400).json({ error: 'Subscribe to this plan through checkout' });
     }
+    if (plan === 'enterprise') {
+      return res.status(400).json({ error: 'Enterprise is available by request only. Contact support.' });
+    }
 
     if (plan) {
       const member = await prisma.organizationMember.findFirst({
