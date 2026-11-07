@@ -35,6 +35,7 @@ router.post('/checkout', async (req: AuthRequest, res: Response) => {
     }
 
     const stripe = stripeClient();
+    const baseUrl = process.env.FRONTEND_URL || 'https://sfxlegal.org';
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       customer_email: typeof req.user?.email === 'string' ? req.user.email : undefined,
@@ -54,8 +55,8 @@ router.post('/checkout', async (req: AuthRequest, res: Response) => {
           },
         },
       ],
-      success_url: 'http://localhost:3000/dashboard/settings/billing?session_id={CHECKOUT_SESSION_ID}',
-      cancel_url: 'http://localhost:3000/dashboard/settings/billing',
+      success_url: `${baseUrl}/dashboard/settings/billing?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/dashboard/settings/billing`,
     });
 
     if (!session.url) {
@@ -64,7 +65,11 @@ router.post('/checkout', async (req: AuthRequest, res: Response) => {
 
     res.json({ url: session.url });
   } catch (error) {
-    console.error('Checkout error:', error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Checkout error:', { plan, organizationId: req.organizationId, error: message });
+    if (message.includes('Stripe is not configured')) {
+      return res.status(503).json({ error: 'Payment system is not available. Please try again later.' });
+    }
     res.status(500).json({ error: 'Could not start checkout' });
   }
 });
@@ -113,7 +118,8 @@ router.post('/confirm', async (req: AuthRequest, res: Response) => {
 
     res.json({ success: true, plan });
   } catch (error) {
-    console.error('Confirm checkout error:', error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Confirm checkout error:', { sessionId, organizationId: req.organizationId, error: message });
     res.status(500).json({ error: 'Could not confirm checkout' });
   }
 });
