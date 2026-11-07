@@ -20,8 +20,8 @@ function stripeClient(): Stripe {
 }
 
 router.post('/checkout', async (req: AuthRequest, res: Response) => {
+  const plan = String(req.body?.plan || '');
   try {
-    const plan = String(req.body?.plan || '');
     const price = prices[plan];
     if (!price) {
       return res.status(400).json({ error: 'Choose Starter or Business' });
@@ -75,8 +75,8 @@ router.post('/checkout', async (req: AuthRequest, res: Response) => {
 });
 
 router.post('/confirm', async (req: AuthRequest, res: Response) => {
+  const sessionId = String(req.body?.sessionId || '');
   try {
-    const sessionId = String(req.body?.sessionId || '');
     if (!sessionId.startsWith('cs_')) {
       return res.status(400).json({ error: 'Missing checkout session' });
     }
