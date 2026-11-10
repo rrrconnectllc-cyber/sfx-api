@@ -15,7 +15,7 @@ router.post('/billing', express.raw({ type: 'application/json' }), async (req: R
     }
 
     // stripe.webhooks.constructEvent expects the raw body as string or buffer
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2023-10-16' });
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
     let event: Stripe.Event;
 
     try {
