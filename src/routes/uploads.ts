@@ -96,8 +96,13 @@ router.get('/download/:fileId', async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: 'File not found' });
     }
 
+    // CRITICAL: Verify file belongs to caller's organization
+    if (file.organizationId !== req.organizationId) {
+      return res.status(403).json({ error: 'You do not have access to this file' });
+    }
+
     // Check if file is expired
-    if (new Date() > file.expiresAt) {
+    if (file.expiresAt && new Date() > file.expiresAt) {
       return res.status(410).json({ error: 'File has expired' });
     }
 

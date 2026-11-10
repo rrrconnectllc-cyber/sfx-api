@@ -14,6 +14,7 @@ import uploadsRoutes from './routes/uploads';
 import membersRoutes from './routes/members';
 import organizationsRoutes from './routes/organizations';
 import billingRoutes from './routes/billing';
+import webhookRoutes from './routes/webhook';
 import invitationRoutes from './routes/invitations';
 import { approvalsRouter, mattersRouter, signRouter, signaturesRouter } from './routes/legal';
 import { authenticateToken } from './middleware/auth';
@@ -38,6 +39,12 @@ app.use(cors({
   ],
   credentials: true,
 }));
+
+// CRITICAL: Webhook MUST be mounted before express.json() middleware
+// Stripe signature verification requires raw body (not parsed JSON)
+app.use('/api/v1/webhooks', webhookRoutes);
+
+// Now safe to parse JSON for all other routes
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
@@ -61,6 +68,7 @@ app.get('/health', (req: Request, res: Response) => {
 });
 
 // API Routes
+// Note: /api/v1/webhooks already mounted before JSON parsing (see above)
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/invitations', invitationRoutes);
 app.use('/api/v1/sign', signRouter);

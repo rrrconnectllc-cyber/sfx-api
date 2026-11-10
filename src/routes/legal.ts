@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { limitsFor } from '../plans';
+import fs from 'fs';
 
 const prisma = new PrismaClient();
 
@@ -360,5 +361,64 @@ signRouter.post('/:id', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Record signature error:', error);
     res.status(500).json({ error: 'Could not record acceptance' });
+  }
+});
+
+// Public download for signature request - client can access ONLY the file they're signing
+signRouter.get('/:id/download', async (req: Request, res: Response) => {
+  try {
+    const { id: requestId } = req.params;
+
+    const signRequest = await prisma.signatureRequest.findUnique({
+      where: { id: requestId },
+      include: { file: true },
+    });
+
+    if (!signRequest) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const file = signRequest.file;
+    if (!file) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    // Check expiration
+    if (file.expiresAt && new Date() > file.expiresAt) {
+      return res.status(410).json({ error: 'Document has expired' });
+    }
+
+    // Check if file exists on disk
+    if (!fs.existsSync(file.encryptedPath)) {
+      return res.status(404).json({ error: 'File not found on disk' });
+    }
+
+    // Log access (public, no authenticated user)
+    await prisma.fileAccessLog.create({
+      data: {
+        fileId: file.id,
+        accessedById: null,
+        ipAddress: req.ip || '',
+        userAgent: req.get('user-agent') || '',
+      },
+    });
+
+    // Serve the file bytes
+    res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
+    res.setHeader('Content-Length', file.size.toString());
+
+    const fileStream = fs.createReadStream(file.encryptedPath);
+    fileStream.pipe(res);
+
+    fileStream.on('error', (err) => {
+      console.error('File stream error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Could not download file' });
+      }
+    });
+  } catch (error) {
+    console.error('Download signature file error:', error);
+    res.status(500).json({ error: 'Could not download file' });
   }
 });

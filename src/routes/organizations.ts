@@ -51,6 +51,9 @@ router.put('/', async (req: AuthRequest, res: Response) => {
     if (plan && !plans.includes(plan)) {
       return res.status(400).json({ error: 'Unknown plan' });
     }
+    if (plan === 'trial') {
+      return res.status(400).json({ error: 'Trial plan cannot be self-serve. Contact support for trial access.' });
+    }
     if (plan === 'starter' || plan === 'business') {
       return res.status(400).json({ error: 'Subscribe to this plan through checkout' });
     }
