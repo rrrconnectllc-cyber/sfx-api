@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { limitsFor } from '../plans';
+import { resolveStoredFile } from '../storage';
 import fs from 'fs';
 
 const prisma = new PrismaClient();
@@ -14,8 +15,9 @@ function fileView(file: {
   createdAt: Date;
   expiresAt: Date;
   downloadCount: number;
-  matterId: string | null;
-}) {
+    matterId: string | null;
+    version?: number;
+  }) {
   return {
     id: file.id,
     name: file.name,
@@ -25,6 +27,7 @@ function fileView(file: {
     expiresAt: file.expiresAt,
     downloadCount: file.downloadCount,
     matterId: file.matterId,
+    version: file.version ?? 1,
   };
 }
 
@@ -483,7 +486,8 @@ signRouter.get('/:id/download', async (req: Request, res: Response) => {
     }
 
     // Check if file exists on disk
-    if (!fs.existsSync(file.encryptedPath)) {
+    const filePath = resolveStoredFile(file.encryptedPath, file.id);
+    if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'File not found on disk' });
     }
 
@@ -502,7 +506,7 @@ signRouter.get('/:id/download', async (req: Request, res: Response) => {
     res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
     res.setHeader('Content-Length', file.size.toString());
 
-    const fileStream = fs.createReadStream(file.encryptedPath);
+    const fileStream = fs.createReadStream(filePath);
     fileStream.pipe(res);
 
     fileStream.on('error', (err) => {

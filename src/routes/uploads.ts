@@ -2,17 +2,12 @@ import express, { Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import fs from 'fs';
-import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { ensureUploadsDir, storedFilePath, resolveStoredFile } from '../storage';
 
 const router = express.Router();
 const prisma = new PrismaClient();
-const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
-
-// Ensure uploads directory exists
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-}
+ensureUploadsDir();
 
 // Upload file
 router.post('/upload', async (req: AuthRequest, res: Response) => {
@@ -32,15 +27,28 @@ router.post('/upload', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    const fileId = uuidv4();
-    const encryptedPath = path.join(UPLOADS_DIR, fileId);
+    const prior = matterId
+      ? await prisma.file.findFirst({
+          where: { matterId, organizationId: req.organizationId, name: fileName },
+          orderBy: { version: 'desc' },
+        })
+      : null;
+    const version = prior ? prior.version + 1 : 1;
 
-    // Save encrypted file to disk
+    const settings = await prisma.organizationSettings.findUnique({
+      where: { organizationId: req.organizationId },
+    });
+    const expirationDays = Math.min(365, Math.max(1, settings?.defaultExpiration || 30));
+    const downloadLimit = Math.max(1, settings?.maxDownloads || 100);
+
+    const fileId = uuidv4();
+    ensureUploadsDir();
+    const encryptedPath = storedFilePath(fileId);
+
     fs.writeFileSync(encryptedPath, Buffer.from(encryptedContent, 'base64'));
 
-    // Create file record in database
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 30); // 30 days default
+    expiresAt.setDate(expiresAt.getDate() + expirationDays);
 
     const file = await prisma.file.create({
       data: {
@@ -53,8 +61,9 @@ router.post('/upload', async (req: AuthRequest, res: Response) => {
         encryptionKey: 'key-' + uuidv4(), // In production, use proper key management
         encryptedPath: encryptedPath,
         expiresAt,
-        maxDownloads: 100,
+        maxDownloads: downloadLimit,
         requirePassword: false,
+        version,
         ...(matterId ? { matterId } : {}),
       },
     });
@@ -128,11 +137,12 @@ router.get('/download/:fileId', async (req: AuthRequest, res: Response) => {
     });
 
     // Read and send file
-    if (!fs.existsSync(file.encryptedPath)) {
+    const filePath = resolveStoredFile(file.encryptedPath, file.id);
+    if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'File not found on disk' });
     }
 
-    const fileContent = fs.readFileSync(file.encryptedPath);
+    const fileContent = fs.readFileSync(filePath);
     res.setHeader('Content-Type', file.mimeType);
     res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
     res.setHeader('X-File-Id', file.id);
