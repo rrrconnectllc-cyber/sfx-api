@@ -41,8 +41,8 @@ router.put('/', async (req: AuthRequest, res: Response) => {
       data: {
         defaultExpiration: defaultExpiration || 30,
         maxDownloads: maxDownloads || 100,
-        requirePassword: requirePassword ?? true,
-        enableEmailNotify: enableEmailNotifications ?? true,
+        requirePassword: requirePassword === true,
+        enableEmailNotify: enableEmailNotifications === true,
         enableTwoFactor: enableTwoFactor ?? false,
       },
     });

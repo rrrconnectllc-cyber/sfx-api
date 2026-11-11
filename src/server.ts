@@ -23,6 +23,10 @@ const app = express();
 const prisma = new PrismaClient();
 const PORT = Number(process.env.PORT) || 3001;
 
+// Railway terminates TLS and sets X-Forwarded-For. Trust that one hop
+// so the rate limiter sees the caller instead of the proxy.
+app.set('trust proxy', 1);
+
 // Prisma returns file size as BigInt, which JSON.stringify rejects.
 app.set('json replacer', (_key: string, value: unknown) =>
   typeof value === 'bigint' ? Number(value) : value

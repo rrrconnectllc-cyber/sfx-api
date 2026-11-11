@@ -31,8 +31,8 @@ model OrganizationSettings {
   organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   defaultExpiration    Int @default(30)
   maxDownloads         Int @default(100)
-  requirePassword      Boolean @default(true)
-  enableEmailNotify    Boolean @default(true)
+  requirePassword      Boolean @default(false)
+  enableEmailNotify    Boolean @default(false)
   enableTwoFactor      Boolean @default(false)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
