@@ -28,6 +28,60 @@ function fileView(file: {
   };
 }
 
+function approvalState(approvals: { status: string }[]) {
+  if (approvals.some((row) => row.status === 'approved')) return 'approved';
+  if (approvals.some((row) => row.status === 'pending')) return 'pending';
+  if (approvals.some((row) => row.status === 'rejected')) return 'rejected';
+  return 'none';
+}
+
+function personName(user: { name: string | null; email: string } | null | undefined) {
+  if (!user) return null;
+  return user.name || user.email;
+}
+
+async function latestApproval(fileId: string) {
+  return prisma.approval.findFirst({
+    where: { fileId, status: 'approved' },
+    orderBy: { decidedAt: 'desc' },
+  });
+}
+
+async function acceptanceRecord(id: string) {
+  const request = await prisma.signatureRequest.findUnique({
+    where: { id },
+    include: {
+      file: { include: { uploadedBy: { select: { name: true, email: true } } } },
+      matter: { select: { name: true, clientName: true } },
+      organization: { select: { name: true } },
+    },
+  });
+  if (!request) return null;
+  const approval = await latestApproval(request.fileId);
+  const approver = approval?.decidedById
+    ? await prisma.user.findUnique({
+        where: { id: approval.decidedById },
+        select: { name: true, email: true },
+      })
+    : null;
+  return {
+    id: request.id,
+    status: request.status,
+    organizationName: request.organization.name,
+    matterName: request.matter.name,
+    clientName: request.matter.clientName,
+    documentName: request.file.name,
+    filedBy: personName(request.file.uploadedBy),
+    filedAt: request.file.createdAt,
+    approvedBy: personName(approver),
+    approvedAt: approval?.decidedAt ?? null,
+    signerName: request.signerName,
+    signerEmail: request.signerEmail,
+    signedName: request.signedName,
+    signedAt: request.signedAt,
+  };
+}
+
 export const mattersRouter = express.Router();
 
 mattersRouter.get('/summary', async (req: AuthRequest, res: Response) => {
@@ -120,7 +174,12 @@ mattersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const matter = await prisma.matter.findFirst({
       where: { id: req.params.id, organizationId: req.organizationId },
-      include: { files: { orderBy: { createdAt: 'desc' } } },
+      include: {
+        files: {
+          orderBy: { createdAt: 'desc' },
+          include: { approvals: { select: { status: true } } },
+        },
+      },
     });
     if (!matter) return res.status(404).json({ error: 'Matter not found' });
     res.json({
@@ -129,7 +188,10 @@ mattersRouter.get('/:id', async (req: AuthRequest, res: Response) => {
       clientName: matter.clientName,
       status: matter.status,
       createdAt: matter.createdAt,
-      files: matter.files.map(fileView),
+      files: matter.files.map((file) => ({
+        ...fileView(file),
+        approvalStatus: approvalState(file.approvals),
+      })),
     });
   } catch (error) {
     console.error('Get matter error:', error);
@@ -261,6 +323,25 @@ signaturesRouter.get('/', async (req: AuthRequest, res: Response) => {
   }
 });
 
+signaturesRouter.get('/:id/record', async (req: AuthRequest, res: Response) => {
+  try {
+    const owned = await prisma.signatureRequest.findFirst({
+      where: { id: req.params.id, organizationId: req.organizationId },
+      select: { id: true, status: true },
+    });
+    if (!owned) return res.status(404).json({ error: 'Acceptance record not found' });
+    if (owned.status !== 'signed') {
+      return res.status(400).json({ error: 'This document has not been accepted yet.' });
+    }
+    const record = await acceptanceRecord(req.params.id);
+    if (!record) return res.status(404).json({ error: 'Acceptance record not found' });
+    res.json(record);
+  } catch (error) {
+    console.error('Acceptance record error:', error);
+    res.status(500).json({ error: 'Could not load the acceptance record' });
+  }
+});
+
 signaturesRouter.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const signerName = String(req.body?.signerName || '').trim();
@@ -273,6 +354,10 @@ signaturesRouter.post('/', async (req: AuthRequest, res: Response) => {
       where: { id: fileId, organizationId: req.organizationId, matterId },
     });
     if (!file) return res.status(404).json({ error: 'Document not found on this matter' });
+    const approval = await latestApproval(file.id);
+    if (!approval) {
+      return res.status(400).json({ error: 'Approve this document before copying an acceptance link.' });
+    }
     const request = await prisma.signatureRequest.create({
       data: {
         organizationId: req.organizationId!,
@@ -312,6 +397,9 @@ signRouter.get('/:id', async (req: Request, res: Response) => {
       },
     });
     if (!request) return res.status(404).json({ error: 'Signature request not found' });
+    if (!(await latestApproval(request.fileId))) {
+      return res.status(403).json({ error: 'This document has not been approved by the firm yet.' });
+    }
     res.json({
       id: request.id,
       status: request.status,
@@ -341,6 +429,9 @@ signRouter.post('/:id', async (req: Request, res: Response) => {
       include: { file: { select: { name: true } } },
     });
     if (!existing) return res.status(404).json({ error: 'Signature request not found' });
+    if (!(await latestApproval(existing.fileId))) {
+      return res.status(403).json({ error: 'This document has not been approved by the firm yet.' });
+    }
     if (existing.status !== 'pending') {
       return res.status(400).json({ error: 'This request is already complete' });
     }
@@ -376,6 +467,9 @@ signRouter.get('/:id/download', async (req: Request, res: Response) => {
 
     if (!signRequest) {
       return res.status(404).json({ error: 'Document not found' });
+    }
+    if (!(await latestApproval(signRequest.fileId))) {
+      return res.status(403).json({ error: 'This document has not been approved by the firm yet.' });
     }
 
     const file = signRequest.file;
@@ -420,5 +514,27 @@ signRouter.get('/:id/download', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Download signature file error:', error);
     res.status(500).json({ error: 'Could not download file' });
+  }
+});
+
+signRouter.get('/:id/record', async (req: Request, res: Response) => {
+  try {
+    const request = await prisma.signatureRequest.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, status: true, fileId: true },
+    });
+    if (!request) return res.status(404).json({ error: 'Acceptance record not found' });
+    if (!(await latestApproval(request.fileId))) {
+      return res.status(403).json({ error: 'This document has not been approved by the firm yet.' });
+    }
+    if (request.status !== 'signed') {
+      return res.status(400).json({ error: 'This document has not been accepted yet.' });
+    }
+    const record = await acceptanceRecord(request.id);
+    if (!record) return res.status(404).json({ error: 'Acceptance record not found' });
+    res.json(record);
+  } catch (error) {
+    console.error('Public acceptance record error:', error);
+    res.status(500).json({ error: 'Could not load the acceptance record' });
   }
 });
